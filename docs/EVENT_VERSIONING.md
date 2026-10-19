@@ -1,7 +1,7 @@
 # Event versioning: initial funding event migration
 
 Existing event topics and payloads remain unchanged. The invoice and pool
-`invoice_funded` helpers now additionally emit:
+funding paths now additionally emit:
 
 | Topic | Indexed ID | Data |
 | --- | --- | --- |
@@ -18,7 +18,10 @@ new decoder can reject unsupported versions before reading the payload.
 The companion is emitted in the same transaction as the legacy event. A reverted
 transaction does not commit either event. No historical event data is rewritten.
 Focused helper tests assert both topic shapes, emitter addresses and payloads.
-Consumers relying on an exact event count must accept the added companion event;
+The versioned helper is called before the unchanged legacy helper, keeping the
+legacy funding event last for existing single-event readers and preserving direct
+legacy emitter XDR fixtures. Consumers relying on an exact event count must accept
+the added companion event;
 transaction resource usage also increases by one event per helper invocation.
 
 ## Remaining scope

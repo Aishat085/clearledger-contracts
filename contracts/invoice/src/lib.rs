@@ -1367,6 +1367,7 @@ impl InvoiceContract {
             InvoiceStatus::Listed,
             InvoiceStatus::Funded,
         );
+        events::invoice_funded_v1(&env, &invoice_id, funded_amount);
         events::invoice_funded(&env, &invoice_id, funded_amount);
         true
     }

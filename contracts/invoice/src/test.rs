@@ -311,7 +311,7 @@ fn attest(env: &Env, client: &InvoiceContractClient, invoice_id: &BytesN<32>) {
 
 #[cfg(test)]
 mod versioned_event_tests {
-    use crate::events::invoice_funded;
+    use crate::events::{invoice_funded, invoice_funded_v1};
     use soroban_sdk::{BytesN, Env, Symbol};
     use soroban_sdk::{testutils::Events, IntoVal, Val, Vec};
 
@@ -320,16 +320,19 @@ mod versioned_event_tests {
         let env = Env::default();
         let contract = env.register_contract(None, crate::InvoiceContract);
         let invoice_id = BytesN::from_array(&env, &[17; 32]);
-        env.as_contract(&contract, || invoice_funded(&env, &invoice_id, 123u128));
+        env.as_contract(&contract, || {
+            invoice_funded_v1(&env, &invoice_id, 123u128);
+            invoice_funded(&env, &invoice_id, 123u128);
+        });
         let published = env.events().all();
         assert_eq!(published.len(), 2);
-        let (legacy_contract, legacy_topics, legacy_data) = published.get(0).unwrap();
+        let (legacy_contract, legacy_topics, legacy_data) = published.get(1).unwrap();
         let expected_legacy_topics: Vec<Val> =
             (Symbol::new(&env, "invoice_funded"), invoice_id.clone()).into_val(&env);
         assert_eq!(legacy_contract, contract);
         assert_eq!(legacy_topics, expected_legacy_topics);
         assert_eq!(legacy_data, 123u128.into_val(&env));
-        let (versioned_contract, versioned_topics, versioned_data) = published.get(1).unwrap();
+        let (versioned_contract, versioned_topics, versioned_data) = published.get(0).unwrap();
         let expected_versioned_topics: Vec<Val> =
             (Symbol::new(&env, "invoice_funded_v1"), invoice_id).into_val(&env);
         assert_eq!(versioned_contract, contract);
