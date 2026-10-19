@@ -49,6 +49,11 @@ pub fn invoice_funded(env: &Env, invoice_id: &BytesN<32>, funded_amount: u128) {
         (Symbol::new(env, "invoice_funded"), invoice_id.clone()),
         funded_amount,
     );
+    // Companion event: keep the legacy topic and scalar payload above intact.
+    env.events().publish(
+        (Symbol::new(env, "invoice_funded_v1"), invoice_id.clone()),
+        (1u32, funded_amount),
+    );
 }
 
 pub fn repayment_received(

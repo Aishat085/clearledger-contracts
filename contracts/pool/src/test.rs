@@ -427,6 +427,35 @@ fn create_lp_with_balance(te: &TestEnv, balance: i128) -> Address {
 }
 
 //  DEPOSIT TESTS
+#[cfg(test)]
+mod versioned_event_tests {
+    use crate::events::invoice_funded;
+    use soroban_sdk::{BytesN, Env, Symbol};
+    use soroban_sdk::{testutils::Events, IntoVal, Val, Vec};
+
+    #[test]
+    fn funding_keeps_legacy_payload_and_adds_explicit_version() {
+        let env = Env::default();
+        let contract = env.register_contract(None, crate::PoolContract);
+        let invoice_id = BytesN::from_array(&env, &[17; 32]);
+        env.as_contract(&contract, || invoice_funded(&env, &invoice_id, 123u128));
+        let published = env.events().all();
+        assert_eq!(published.len(), 2);
+        let (legacy_contract, legacy_topics, legacy_data) = published.get(0).unwrap();
+        let expected_legacy_topics: Vec<Val> =
+            (Symbol::new(&env, "invoice_funded"), invoice_id.clone()).into_val(&env);
+        assert_eq!(legacy_contract, contract);
+        assert_eq!(legacy_topics, expected_legacy_topics);
+        assert_eq!(legacy_data, 123u128.into_val(&env));
+        let (versioned_contract, versioned_topics, versioned_data) = published.get(1).unwrap();
+        let expected_versioned_topics: Vec<Val> =
+            (Symbol::new(&env, "invoice_funded_v1"), invoice_id).into_val(&env);
+        assert_eq!(versioned_contract, contract);
+        assert_eq!(versioned_topics, expected_versioned_topics);
+        assert_eq!(versioned_data, (1u32, 123u128).into_val(&env));
+    }
+}
+
 #[test]
 fn test_first_deposit_issues_one_to_one_shares() {
     let te = setup();
