@@ -187,7 +187,10 @@ fn assert_fee_settlement(lifecycle: &FeeLifecycle, expected: FeeSettlementExpect
     assert_eq!(token.balance(&lifecycle.escrow_id), 9_800_000_000);
 }
 
-fn expected_repayment_split(invoice: &clearledger_invoice::Invoice, repaid_at: u64) -> (u128, u128) {
+fn expected_repayment_split(
+    invoice: &clearledger_invoice::Invoice,
+    repaid_at: u64,
+) -> (u128, u128) {
     let funded_at = invoice
         .funded_at
         .expect("funded invoice should record its funding timestamp");
@@ -264,6 +267,96 @@ fn attest_invoice(env: &Env, invoice_client: &InvoiceContractClient, invoice_id:
     let signature = BytesN::from_array(env, &sig_bytes);
 
     invoice_client.submit_attestation(invoice_id, &payload_bytes, &signature);
+}
+
+// A deterministic initial state machine, deliberately limited to pre-funding
+// create/list/cancel/replay behavior. These seeds reproduce failures exactly.
+#[test]
+fn test_seeded_prefunding_state_machine_matches_model() {
+    for seed in [0x110_u64, 0x5eed_u64, 0xc1ea_u64] {
+        let lifecycle = setup_fee_lifecycle();
+        lifecycle.env.budget().reset_unlimited();
+        let mut rng = seed;
+        let mut ids = std::vec::Vec::new();
+        let mut model = [InvoiceStatus::Created; 8];
+        let due = lifecycle.env.ledger().timestamp() + 30 * 86400;
+        for _ in 0..8 {
+            ids.push(lifecycle.invoice.create(
+                &lifecycle.issuer,
+                &lifecycle.buyer,
+                &1_000_000_000,
+                &due,
+                &lifecycle.usdc_id,
+            ));
+        }
+        for step in 0..48 {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            let index = (rng % 8) as usize;
+            let listing = (rng >> 8) & 1 == 1;
+            let id = &ids[index];
+            let before = lifecycle.invoice.get(id).to_xdr(&lifecycle.env);
+            if model[index] == InvoiceStatus::Created {
+                if listing {
+                    attest_invoice(&lifecycle.env, &lifecycle.invoice, id);
+                    assert!(lifecycle.invoice.list_for_financing(id, &200));
+                    model[index] = InvoiceStatus::Listed;
+                } else {
+                    assert!(lifecycle.invoice.cancel(id));
+                    model[index] = InvoiceStatus::Cancelled;
+                }
+            } else {
+                let rejected = if listing {
+                    lifecycle.invoice.try_list_for_financing(id, &200).is_err()
+                } else {
+                    lifecycle.invoice.try_cancel(id).is_err()
+                };
+                assert!(rejected, "seed={seed} step={step} index={index}");
+                assert_eq!(
+                    lifecycle.invoice.get(id).to_xdr(&lifecycle.env),
+                    before,
+                    "seed={seed} step={step}"
+                );
+            }
+            for (i, expected) in model.iter().enumerate() {
+                assert_eq!(
+                    lifecycle.invoice.get_status(&ids[i]),
+                    *expected as u32,
+                    "seed={seed} step={step} invoice={i}"
+                );
+            }
+            assert_eq!(
+                lifecycle
+                    .invoice
+                    .get_invoice_count_by_issuer(&lifecycle.issuer),
+                8
+            );
+            assert_eq!(
+                lifecycle
+                    .invoice
+                    .get_invoice_count_by_buyer(&lifecycle.buyer),
+                8
+            );
+            let counts = lifecycle.invoice.get_counts();
+            for (status, name) in [
+                (InvoiceStatus::Created, "Created"),
+                (InvoiceStatus::Listed, "Listed"),
+                (InvoiceStatus::Cancelled, "Cancelled"),
+            ] {
+                let expected = model.iter().filter(|s| **s == status).count() as u64;
+                assert_eq!(
+                    counts.get(String::from_str(&lifecycle.env, name)).unwrap(),
+                    expected,
+                    "seed={seed} step={step} status={name}"
+                );
+            }
+        }
+        let token = MockTokenClient::new(&lifecycle.env, &lifecycle.usdc_id);
+        assert_eq!(token.balance(&lifecycle.escrow_id), 0);
+        assert_eq!(token.balance(&lifecycle.pool_id), 0);
+        assert_eq!(lifecycle.pool.get_stats().total_shares, 0);
+    }
 }
 
 // --------------- Cross-Contract Integration Tests (Issue #313) ---------------
