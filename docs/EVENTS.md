@@ -5,6 +5,19 @@ pagination guidance; event-driven indexing can avoid repeated full-history reads
 
 This document lists every event emitted by the ClearLedger smart contracts. Events are published via `env.events().publish(topics, data)` and are indexed by the Go indexer for off-chain consumption.
 
+## Indexer migration guidance
+
+Indexers must treat event names as an open set. Unknown topics should be retained
+with their raw topic and data values so a later decoder can replay them. A new
+field appended to an existing payload is compatible when the decoder accepts the
+previous shorter shape; changing a field type or removing a field requires a
+catalog version migration. Topic order and event names are stable API surface.
+
+When upgrading a decoder, deploy the new schema alongside the previous decoder,
+backfill from the earliest ledger covered by the contract version, and compare
+decoded state transitions before switching consumers. Event source files live
+under `contracts/*/src/events.rs`.
+
 All amounts are in **USDC stroops** (1 USDC = 10,000,000 stroops).  
 All timestamps are **Unix seconds** (u64).  
 Invoice IDs are **BytesN<32>** (32-byte identifiers).
